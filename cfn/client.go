@@ -8,32 +8,25 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/ptr"
 )
 
-func getClient() (*cloudformation.Client, error) {
-	ctx := context.TODO()
-	cfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
+type Cfn struct {
+	client *cloudformation.Client
+}
+
+func New(cfg aws.Config) *Cfn {
 	client := cloudformation.NewFromConfig(cfg)
-	return client, nil
+	return &Cfn{client}
 }
 
 // GetStack returns a cloudformation.Stack representing the named stack
-func GetStack(stackName string) (types.Stack, error) {
-	client, err := getClient()
-	if err != nil {
-		return types.Stack{}, err
-	}
-
+func (c *Cfn) GetStack(ctx context.Context, stackName string) (types.Stack, error) {
 	// Get the stack properties
-	res, err := client.DescribeStacks(context.Background(), &cloudformation.DescribeStacksInput{
+	res, err := c.client.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{
 		StackName: &stackName,
 	})
 	var ve *smithy.GenericAPIError
@@ -50,14 +43,9 @@ func GetStack(stackName string) (types.Stack, error) {
 var ErrStackNotExist = errors.New("stack does not exist")
 
 // GetStackResources returns a list of the resources in the named stack
-func GetStackResources(stackName string) ([]types.StackResource, error) {
-	client, err := getClient()
-	if err != nil {
-		return nil, err
-	}
-
+func (c *Cfn) GetStackResources(ctx context.Context, stackName string) ([]types.StackResource, error) {
 	// Get the stack resources
-	res, err := client.DescribeStackResources(context.Background(), &cloudformation.DescribeStackResourcesInput{
+	res, err := c.client.DescribeStackResources(ctx, &cloudformation.DescribeStackResourcesInput{
 		StackName: &stackName,
 	})
 	if err != nil {
@@ -68,11 +56,7 @@ func GetStackResources(stackName string) ([]types.StackResource, error) {
 }
 
 // GetChangeSet returns the named changeset
-func GetChangeSet(stackName, changeSetName string) (*cloudformation.DescribeChangeSetOutput, error) {
-	client, err := getClient()
-	if err != nil {
-		return nil, err
-	}
+func (c *Cfn) GetChangeSet(ctx context.Context, stackName, changeSetName string) (*cloudformation.DescribeChangeSetOutput, error) {
 	input := &cloudformation.DescribeChangeSetInput{
 		ChangeSetName: aws.String(changeSetName),
 	}
@@ -82,15 +66,15 @@ func GetChangeSet(stackName, changeSetName string) (*cloudformation.DescribeChan
 		input.StackName = aws.String(stackName)
 	}
 
-	return client.DescribeChangeSet(context.Background(), input)
+	return c.client.DescribeChangeSet(ctx, input)
 }
 
 // CreateChangeSet creates a changeset
-func CreateChangeSet(templateURL string, params []types.Parameter, tags map[string]string, stackName string, roleArn string) (string, error) {
+func (c *Cfn) CreateChangeSet(ctx context.Context, templateURL string, params []types.Parameter, tags map[string]string, stackName string, roleArn string) (string, error) {
 
 	changeSetType := "CREATE"
 
-	existingStack, err := GetStack(stackName)
+	existingStack, err := c.GetStack(ctx, stackName)
 	if err != nil && err != ErrStackNotExist {
 		return "", err
 	}
@@ -118,18 +102,14 @@ func CreateChangeSet(templateURL string, params []types.Parameter, tags map[stri
 	if roleArn != "" {
 		input.RoleARN = ptr.String(roleArn)
 	}
-	client, err := getClient()
-	if err != nil {
-		return changeSetName, err
-	}
 
-	_, err = client.CreateChangeSet(context.Background(), input)
+	_, err = c.client.CreateChangeSet(ctx, input)
 	if err != nil {
 		return changeSetName, err
 	}
 
 	for {
-		res, err := client.DescribeChangeSet(context.Background(), &cloudformation.DescribeChangeSetInput{
+		res, err := c.client.DescribeChangeSet(ctx, &cloudformation.DescribeChangeSetInput{
 			ChangeSetName: &changeSetName,
 			StackName:     &stackName,
 		})
@@ -154,13 +134,8 @@ func CreateChangeSet(templateURL string, params []types.Parameter, tags map[stri
 }
 
 // ExecuteChangeSet executes the named changeset
-func ExecuteChangeSet(stackName, changeSetName string) error {
-	client, err := getClient()
-	if err != nil {
-		return err
-	}
-
-	_, err = client.ExecuteChangeSet(context.Background(), &cloudformation.ExecuteChangeSetInput{
+func (c *Cfn) ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error {
+	_, err := c.client.ExecuteChangeSet(ctx, &cloudformation.ExecuteChangeSetInput{
 		ChangeSetName: &changeSetName,
 		StackName:     &stackName,
 	})

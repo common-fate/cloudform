@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/smithy-go/ptr"
 
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
@@ -27,7 +29,7 @@ func StackHasSettled(stack types.Stack) bool {
 	return statusIsSettled(string(stack.StackStatus))
 }
 
-func stackResourceStatuses(stack types.Stack) (string, []string) {
+func (u *UI) stackResourceStatuses(ctx context.Context, stack types.Stack) (string, []string) {
 	stackName := ptr.ToString(stack.StackName)
 
 	statuses := make(map[string]string)
@@ -35,7 +37,7 @@ func stackResourceStatuses(stack types.Stack) (string, []string) {
 	nested := make(map[string]string)
 
 	// Get changeset details if possible
-	changeset, err := cfn.GetChangeSet(stackName, ptr.ToString(stack.ChangeSetId))
+	changeset, err := u.cfnClient.GetChangeSet(ctx, stackName, ptr.ToString(stack.ChangeSetId))
 	if err == nil {
 		for _, change := range changeset.Changes {
 			resourceID := ptr.ToString(change.ResourceChange.LogicalResourceId)
@@ -49,7 +51,7 @@ func stackResourceStatuses(stack types.Stack) (string, []string) {
 	}
 
 	// We ignore errors because it just means we'll list no resources
-	resources, _ := cfn.GetStackResources(stackName)
+	resources, _ := u.cfnClient.GetStackResources(ctx, stackName)
 	for _, resource := range resources {
 		resourceID := ptr.ToString(resource.LogicalResourceId)
 
@@ -75,9 +77,9 @@ func stackResourceStatuses(stack types.Stack) (string, []string) {
 
 		// Store nested stacks
 		if ptr.ToString(resource.ResourceType) == "AWS::CloudFormation::Stack" {
-			stack, err := cfn.GetStack(ptr.ToString(resource.PhysicalResourceId))
+			stack, err := u.cfnClient.GetStack(ctx, ptr.ToString(resource.PhysicalResourceId))
 			if err == nil {
-				rs, rMessages := GetStackOutput(stack)
+				rs, rMessages := u.GetStackOutput(ctx, stack)
 				nested[resourceID] = rs
 				for _, rMessage := range rMessages {
 					messages = append(messages, fmt.Sprintf("%s%s", console.Yellow(fmt.Sprintf("%s/", resourceID)), rMessage))
@@ -179,14 +181,24 @@ func stackResourceStatuses(stack types.Stack) (string, []string) {
 	return out.String(), messages
 }
 
+type UI struct {
+	cfnClient *cfn.Cfn
+}
+
+// New creates a new UI.
+func New(cfg aws.Config) *UI {
+	c := cfn.New(cfg)
+	return &UI{c}
+}
+
 // GetStackOutput returns a pretty representation of a CloudFormation stack's status
-func GetStackOutput(stack types.Stack) (string, []string) {
+func (u *UI) GetStackOutput(ctx context.Context, stack types.Stack) (string, []string) {
 	out := strings.Builder{}
 
 	stackStatus := string(stack.StackStatus)
 	stackName := ptr.ToString(stack.StackName)
 
-	rs, messages := stackResourceStatuses(stack)
+	rs, messages := u.stackResourceStatuses(ctx, stack)
 
 	out.WriteString(fmt.Sprintf("%s: %s %s", console.Yellow(fmt.Sprintf("Stack %s", stackName)), ColouriseStatus(stackStatus), rs))
 
@@ -195,7 +207,7 @@ func GetStackOutput(stack types.Stack) (string, []string) {
 
 // WaitForStackToSettle blocks excute until a stack has finished updating
 // and then returns its status
-func WaitForStackToSettle(stackName string) (string, []string) {
+func (u *UI) WaitForStackToSettle(ctx context.Context, stackName string) (string, []string) {
 	// Start the timer
 	spinner.StartTimer("")
 
@@ -210,7 +222,7 @@ func WaitForStackToSettle(stackName string) (string, []string) {
 	for {
 		out.Reset()
 
-		stack, err := cfn.GetStack(stackID)
+		stack, err := u.cfnClient.GetStack(ctx, stackID)
 		if err != nil {
 			panic(Errorf(err, "operation failed"))
 		}
@@ -218,7 +230,7 @@ func WaitForStackToSettle(stackName string) (string, []string) {
 		// Refresh the stack ID so we can deal with deleted stacks ok
 		stackID = ptr.ToString(stack.StackId)
 
-		output, messages := GetStackOutput(stack)
+		output, messages := u.GetStackOutput(ctx, stack)
 
 		// Send the output first
 		out.WriteString(output)
@@ -263,7 +275,7 @@ func WaitForStackToSettle(stackName string) (string, []string) {
 // GetStackSummary returns a string representation of an existing stack.
 // If long is false, only the stack status and stack outputs will be included.
 // If long is true, resources and parameters will be also included in the output.
-func GetStackSummary(stack types.Stack, long bool) string {
+func (u *UI) GetStackSummary(ctx context.Context, stack types.Stack, long bool) string {
 	out := strings.Builder{}
 
 	stackStatus := string(stack.StackStatus)
@@ -291,7 +303,7 @@ func GetStackSummary(stack types.Stack, long bool) string {
 
 		// Resources
 		out.WriteString(fmt.Sprintf("  %s:\n", console.Yellow("Resources")))
-		resources, _ := cfn.GetStackResources(stackName) // Ignore errors - it just means we'll get no resources
+		resources, _ := u.cfnClient.GetStackResources(ctx, stackName) // Ignore errors - it just means we'll get no resources
 		for _, resource := range resources {
 			out.WriteString(fmt.Sprintf("    %s: %s\n",
 				console.Yellow(ptr.ToString(resource.LogicalResourceId)),
@@ -299,9 +311,9 @@ func GetStackSummary(stack types.Stack, long bool) string {
 			))
 
 			if ptr.ToString(resource.ResourceType) == "AWS::CloudFormation::Stack" {
-				nestedStack, err := cfn.GetStack(ptr.ToString(resource.PhysicalResourceId))
+				nestedStack, err := u.cfnClient.GetStack(ctx, ptr.ToString(resource.PhysicalResourceId))
 				if err == nil {
-					nestedSummary := GetStackSummary(nestedStack, long)
+					nestedSummary := u.GetStackSummary(ctx, nestedStack, long)
 
 					for _, line := range strings.Split(nestedSummary, "\n") {
 						out.WriteString(fmt.Sprintf("      %s\n", line))
