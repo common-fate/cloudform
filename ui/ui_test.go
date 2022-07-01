@@ -33,8 +33,8 @@ func TestColouriseStatus(t *testing.T) {
 }
 
 func TestColouriseDiff(t *testing.T) {
-	a, _ := parse.File("../../test/templates/success.template")
-	b, _ := parse.File("../../test/templates/failure.template")
+	a, _ := parse.File("testdata/success.template")
+	b, _ := parse.File("testdata/failure.template")
 
 	d := diff.New(a, b)
 
