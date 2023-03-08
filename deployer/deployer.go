@@ -68,6 +68,15 @@ type DeployOpts struct {
 	Confirm bool
 }
 
+type DeployOptFunc func(*DeployOpts)
+
+// WithConfirm adjusts the Confirm variable in the deployment options.
+func WithConfirm(confirm bool) DeployOptFunc {
+	return func(do *DeployOpts) {
+		do.Confirm = confirm
+	}
+}
+
 type DeployResult struct {
 	FinalStatus string
 }
