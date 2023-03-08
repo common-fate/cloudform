@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -70,7 +71,8 @@ func (c *Cfn) GetChangeSet(ctx context.Context, stackName, changeSetName string)
 }
 
 // CreateChangeSet creates a changeset
-func (c *Cfn) CreateChangeSet(ctx context.Context, templateURL string, params []types.Parameter, tags map[string]string, stackName string, roleArn string) (string, error) {
+// template can be either a URL or a template body
+func (c *Cfn) CreateChangeSet(ctx context.Context, template string, params []types.Parameter, tags map[string]string, stackName string, roleArn string) (string, error) {
 
 	changeSetType := "CREATE"
 
@@ -83,6 +85,16 @@ func (c *Cfn) CreateChangeSet(ctx context.Context, templateURL string, params []
 		changeSetType = "UPDATE"
 	}
 
+	var templateBody *string
+	var templateURL *string
+
+	u, err := url.Parse(template)
+	if err == nil {
+		templateURL = aws.String(u.String())
+	} else {
+		templateBody = &template
+	}
+
 	changeSetName := stackName + "-" + fmt.Sprint(time.Now().Unix())
 
 	input := &cloudformation.CreateChangeSetInput{
@@ -92,7 +104,8 @@ func (c *Cfn) CreateChangeSet(ctx context.Context, templateURL string, params []
 		Tags:                makeTags(tags),
 		IncludeNestedStacks: ptr.Bool(true),
 		Parameters:          params,
-		TemplateURL:         &templateURL,
+		TemplateURL:         templateURL,
+		TemplateBody:        templateBody,
 		Capabilities: []types.Capability{
 			"CAPABILITY_NAMED_IAM",
 			"CAPABILITY_AUTO_EXPAND",
