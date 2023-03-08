@@ -156,6 +156,20 @@ func (c *Cfn) ExecuteChangeSet(ctx context.Context, stackName, changeSetName str
 	return err
 }
 
+// DeleteStack deletes a stack
+func (c *Cfn) DeleteStack(stackName string, roleArn string) (*cloudformation.DeleteStackOutput, error) {
+	input := &cloudformation.DeleteStackInput{
+		StackName: &stackName,
+	}
+
+	// roleArn is optional
+	if roleArn != "" {
+		input.RoleARN = ptr.String(roleArn)
+	}
+
+	return c.client.DeleteStack(context.Background(), input)
+}
+
 func makeTags(tags map[string]string) []types.Tag {
 	out := make([]types.Tag, 0)
 
