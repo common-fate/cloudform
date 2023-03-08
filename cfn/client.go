@@ -30,6 +30,11 @@ func (c *Cfn) GetStack(ctx context.Context, stackName string) (types.Stack, erro
 	res, err := c.client.DescribeStacks(ctx, &cloudformation.DescribeStacksInput{
 		StackName: &stackName,
 	})
+	var snf *types.StackNotFoundException
+	if errors.As(err, &snf) {
+		return types.Stack{}, ErrStackNotExist
+	}
+
 	var ve *smithy.GenericAPIError
 	if err != nil && !errors.As(err, &ve) {
 		return types.Stack{}, err
