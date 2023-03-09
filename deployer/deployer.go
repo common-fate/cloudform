@@ -79,6 +79,7 @@ func WithConfirm(confirm bool) DeployOptFunc {
 
 type DeployResult struct {
 	FinalStatus string
+	Messages    []string
 }
 
 // Deploy deploys a stack and returns the final status
@@ -146,6 +147,7 @@ func (b *Deployer) Deploy(ctx context.Context, opts DeployOpts) (*DeployResult, 
 
 	res := DeployResult{
 		FinalStatus: status,
+		Messages:    messages,
 	}
 
 	return &res, nil
